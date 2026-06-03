@@ -12,11 +12,7 @@
             padding: 20px;
             background: #f5f5f5;
         }
-        h1 {
-            color: #333;
-            text-align: center;
-            font-size: 22px;
-        }
+        h1 { color: #333; text-align: center; font-size: 22px; }
         .status-box {
             background: white;
             border-radius: 10px;
@@ -41,19 +37,8 @@
             margin-bottom: 15px;
             box-sizing: border-box;
         }
-        .dl-btn:hover {
-            background: #2d8f47;
-        }
-        .history {
-            background: white;
-            border-radius: 10px;
-            padding: 15px;
-        }
-        .history h2 {
-            font-size: 16px;
-            color: #333;
-            margin-top: 0;
-        }
+        .history { background: white; border-radius: 10px; padding: 15px; }
+        .history h2 { font-size: 16px; color: #333; margin-top: 0; }
         .history-item {
             display: flex;
             justify-content: space-between;
@@ -62,9 +47,7 @@
             border-bottom: 1px solid #eee;
             font-size: 14px;
         }
-        .history-item:last-child {
-            border-bottom: none;
-        }
+        .history-item:last-child { border-bottom: none; }
         .history-dl-btn {
             background: #4285f4;
             color: white;
@@ -75,29 +58,16 @@
             font-size: 13px;
             text-decoration: none;
         }
-        #notif-status {
-            text-align: center;
-            font-size: 13px;
-            color: #aaa;
-            margin-bottom: 15px;
-        }
+        #notif-status { text-align: center; font-size: 13px; color: #aaa; margin-bottom: 15px; }
     </style>
 </head>
 <body>
     <h1>📥 ファイル受信</h1>
-
-    <div class="status-box" id="statusBox">
-        待機中...新しいファイルが届くと通知が来ます
-    </div>
-
+    <div class="status-box" id="statusBox">待機中...新しいファイルが届くと通知が来ます</div>
     <div id="notif-status"></div>
-
     <div id="latestDl" style="display:none;">
-        <a class="dl-btn" id="dlBtn" href="#" download>
-            ⬇️ 最新ファイルをダウンロード
-        </a>
+        <a class="dl-btn" id="dlBtn" href="#" target="_blank">⬇️ 最新ファイルをダウンロード</a>
     </div>
-
     <div class="history" id="historyBox" style="display:none;">
         <h2>📋 過去の配信履歴</h2>
         <div id="historyList"></div>
@@ -115,48 +85,47 @@
             appId: "1:147615553608:web:22f01e6b7cc993a4d0607d"
         };
 
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbwLKeq6r4YAte7jfyZto03VMXTh6gxW2ik8-B_ByFnn84jLQvOacvOW16sWqqLVgT3S/exec';
+
         firebase.initializeApp(firebaseConfig);
         const messaging = firebase.messaging();
 
-        // 通知許可リクエスト
         async function requestPermission() {
             try {
                 const permission = await Notification.requestPermission();
                 if (permission === 'granted') {
+                    const registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
                     const token = await messaging.getToken({
-                        vapidKey: 'BMSoLyMzJDR-UF6ezY-esqyavJ7oYpSlK3BSh2Z1fdSE-AGo2VUd5EDM5TjRfyG_Djit1sqTxKq5g7movM3BKac'
+                        vapidKey: 'BMSoLyMzJDR-UF6ezY-esqyavJ7oYpSlK3BSh2Z1fdSE-AGo2VUd5EDM5TjRfyG_Djit1sqTxKq5g7movM3BKac',
+                        serviceWorkerRegistration: registration
                     });
-                    // サーバーにトークン登録
-                    await fetch('/register-token', {
+                    await fetch(GAS_URL, {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({token})
+                        body: JSON.stringify({action: 'registerToken', token})
                     });
                     document.getElementById('notif-status').textContent = '✅ 通知オン';
                 } else {
-                    document.getElementById('notif-status').textContent = '❌ 通知がオフです。設定からオンにしてください';
+                    document.getElementById('notif-status').textContent = '❌ 通知がオフです';
                 }
             } catch (e) {
-                document.getElementById('notif-status').textContent = '通知の設定に失敗しました';
+                document.getElementById('notif-status').textContent = '通知設定失敗: ' + e.message;
             }
         }
 
         requestPermission();
 
-        // 通知受信時
         messaging.onMessage((payload) => {
             const url = payload.data.download_url;
-            showDownload(url, '今届きました');
+            showDownload(url);
             saveHistory(url);
         });
 
-        function showDownload(url, label) {
-            document.getElementById('statusBox').textContent = '📬 ' + label + '！タップしてダウンロード';
+        function showDownload(url) {
+            document.getElementById('statusBox').textContent = '📬 ファイルが届きました！タップしてダウンロード';
             document.getElementById('dlBtn').href = url;
             document.getElementById('latestDl').style.display = 'block';
         }
 
-        // 履歴管理
         function saveHistory(url) {
             const history = JSON.parse(localStorage.getItem('dlHistory') || '[]');
             const now = new Date().toLocaleString('ja-JP');
@@ -167,13 +136,12 @@
 
         function renderHistory() {
             const history = JSON.parse(localStorage.getItem('dlHistory') || '[]');
-            const list = document.getElementById('historyList');
             if (history.length === 0) return;
             document.getElementById('historyBox').style.display = 'block';
-            list.innerHTML = history.map(h => `
+            document.getElementById('historyList').innerHTML = history.map(h => `
                 <div class="history-item">
                     <span>${h.date}</span>
-                    <a class="history-dl-btn" href="${h.url}" download>DL</a>
+                    <a class="history-dl-btn" href="${h.url}" target="_blank">DL</a>
                 </div>
             `).join('');
         }
