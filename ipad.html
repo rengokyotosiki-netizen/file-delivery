@@ -1,71 +1,184 @@
-const firebaseConfig = {
-    apiKey: "AIzaSyA0IauzLxirKSqr4WZ7rCLLE0q_GLUwvjQ",
-    authDomain: "kyotoshiki-e9b89.firebaseapp.com",
-    projectId: "kyotoshiki-e9b89",
-    storageBucket: "kyotoshiki-e9b89.firebasestorage.app",
-    messagingSenderId: "147615553608",
-    appId: "1:147615553608:web:22f01e6b7cc993a4d0607d"
-};
-
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbwLKeq6r4YAte7jfyZto03VMXTh6gxW2ik8-B_ByFnn84jLQvOacvOW16sWqqLVgT3S/exec';
-
-firebase.initializeApp(firebaseConfig);
-const messaging = firebase.messaging();
-
-async function requestPermission() {
-    try {
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') {
-            const registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
-            const token = await messaging.getToken({
-                vapidKey: 'BMSoLyMzJDR-UF6ezY-esqyavJ7oYpSlK3BSh2Z1fdSE-AGo2VUd5EDM5TjRfyG_Djit1sqTxKq5g7movM3BKac',
-                serviceWorkerRegistration: registration
-            });
-            await fetch(GAS_URL, {
-                method: 'POST',
-                body: JSON.stringify({action: 'registerToken', token})
-            });
-            document.getElementById('notif-status').textContent = '✅ 通知オン';
-        } else {
-            document.getElementById('notif-status').textContent = '❌ 通知がオフです';
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ファイル受信</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 500px;
+            margin: 30px auto;
+            padding: 20px;
+            background: #f5f5f5;
         }
-    } catch (e) {
-        document.getElementById('notif-status').textContent = '通知設定失敗: ' + e.message;
-    }
-}
+        h1 {
+            color: #333;
+            text-align: center;
+            font-size: 22px;
+        }
+        .status-box {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 16px;
+            color: #555;
+        }
+        .dl-btn {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: #34a853;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            margin-bottom: 15px;
+            box-sizing: border-box;
+        }
+        .dl-btn:hover {
+            background: #2d8f47;
+        }
+        .history {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+        }
+        .history h2 {
+            font-size: 16px;
+            color: #333;
+            margin-top: 0;
+        }
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+        }
+        .history-item:last-child {
+            border-bottom: none;
+        }
+        .history-dl-btn {
+            background: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            text-decoration: none;
+        }
+        #notif-status {
+            text-align: center;
+            font-size: 13px;
+            color: #aaa;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <h1>📥 ファイル受信</h1>
 
-requestPermission();
+    <div class="status-box" id="statusBox">
+        待機中...新しいファイルが届くと通知が来ます
+    </div>
 
-messaging.onMessage((payload) => {
-    const url = payload.data.download_url;
-    showDownload(url);
-    saveHistory(url);
-});
+    <div id="notif-status"></div>
 
-function showDownload(url) {
-    document.getElementById('statusBox').textContent = '📬 ファイルが届きました！タップしてダウンロード';
-    document.getElementById('dlBtn').href = url;
-    document.getElementById('latestDl').style.display = 'block';
-}
+    <div id="latestDl" style="display:none;">
+        <a class="dl-btn" id="dlBtn" href="#" download>
+            ⬇️ 最新ファイルをダウンロード
+        </a>
+    </div>
 
-function saveHistory(url) {
-    const history = JSON.parse(localStorage.getItem('dlHistory') || '[]');
-    const now = new Date().toLocaleString('ja-JP');
-    history.unshift({url, date: now});
-    localStorage.setItem('dlHistory', JSON.stringify(history.slice(0, 10)));
-    renderHistory();
-}
+    <div class="history" id="historyBox" style="display:none;">
+        <h2>📋 過去の配信履歴</h2>
+        <div id="historyList"></div>
+    </div>
 
-function renderHistory() {
-    const history = JSON.parse(localStorage.getItem('dlHistory') || '[]');
-    if (history.length === 0) return;
-    document.getElementById('historyBox').style.display = 'block';
-    document.getElementById('historyList').innerHTML = history.map(h => `
-        <div class="history-item">
-            <span>${h.date}</span>
-            <a class="history-dl-btn" href="${h.url}" target="_blank">DL</a>
-        </div>
-    `).join('');
-}
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compat.js"></script>
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyA0IauzLxirKSqr4WZ7rCLLE0q_GLUwvjQ",
+            authDomain: "kyotoshiki-e9b89.firebaseapp.com",
+            projectId: "kyotoshiki-e9b89",
+            storageBucket: "kyotoshiki-e9b89.firebasestorage.app",
+            messagingSenderId: "147615553608",
+            appId: "1:147615553608:web:22f01e6b7cc993a4d0607d"
+        };
 
-renderHistory();
+        firebase.initializeApp(firebaseConfig);
+        const messaging = firebase.messaging();
+
+        // 通知許可リクエスト
+        async function requestPermission() {
+            try {
+                const permission = await Notification.requestPermission();
+                if (permission === 'granted') {
+                    const token = await messaging.getToken({
+                        vapidKey: 'BMSoLyMzJDR-UF6ezY-esqyavJ7oYpSlK3BSh2Z1fdSE-AGo2VUd5EDM5TjRfyG_Djit1sqTxKq5g7movM3BKac'
+                    });
+                    // サーバーにトークン登録
+                    await fetch('/register-token', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({token})
+                    });
+                    document.getElementById('notif-status').textContent = '✅ 通知オン';
+                } else {
+                    document.getElementById('notif-status').textContent = '❌ 通知がオフです。設定からオンにしてください';
+                }
+            } catch (e) {
+                document.getElementById('notif-status').textContent = '通知の設定に失敗しました';
+            }
+        }
+
+        requestPermission();
+
+        // 通知受信時
+        messaging.onMessage((payload) => {
+            const url = payload.data.download_url;
+            showDownload(url, '今届きました');
+            saveHistory(url);
+        });
+
+        function showDownload(url, label) {
+            document.getElementById('statusBox').textContent = '📬 ' + label + '！タップしてダウンロード';
+            document.getElementById('dlBtn').href = url;
+            document.getElementById('latestDl').style.display = 'block';
+        }
+
+        // 履歴管理
+        function saveHistory(url) {
+            const history = JSON.parse(localStorage.getItem('dlHistory') || '[]');
+            const now = new Date().toLocaleString('ja-JP');
+            history.unshift({url, date: now});
+            localStorage.setItem('dlHistory', JSON.stringify(history.slice(0, 10)));
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const history = JSON.parse(localStorage.getItem('dlHistory') || '[]');
+            const list = document.getElementById('historyList');
+            if (history.length === 0) return;
+            document.getElementById('historyBox').style.display = 'block';
+            list.innerHTML = history.map(h => `
+                <div class="history-item">
+                    <span>${h.date}</span>
+                    <a class="history-dl-btn" href="${h.url}" download>DL</a>
+                </div>
+            `).join('');
+        }
+
+        renderHistory();
+    </script>
+</body>
+</html>
